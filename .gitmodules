@@ -1,0 +1,3 @@
+[submodule "modules/minilog"]
+	path = modules/minilog
+	url = https://github.com/CoralFrameworks/Minilog.git
