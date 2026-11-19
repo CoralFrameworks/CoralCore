@@ -81,19 +81,26 @@ if (NOT TARGET minilog)
   endif ()
 endif ()
 
-# Tests use GoogleTest. A standalone CoralCore gets it from the third_party/libgtest submodule (which
-# carries its own googletest submodule); CORAL_GTEST_DIR or an existing gtest target overrides it, as
-# the application root does.
-if (CORAL_BUILD_TESTS AND NOT TARGET gtest)
-  if (DEFINED CORAL_GTEST_DIR AND EXISTS "${CORAL_GTEST_DIR}/CMakeLists.txt")
-    add_subdirectory("${CORAL_GTEST_DIR}" "${CMAKE_BINARY_DIR}/gtest")
-  elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgtest/coral/CMakeLists.txt")
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgtest/coral" "${CMAKE_BINARY_DIR}/gtest")
-  else ()
+# Tests use GoogleTest. A standalone CoralCore gets it from its third_party/libgtest submodule
+# (which carries its own googletest submodule); CORAL_GTEST_DIR overrides that. As a subproject,
+# CoralCore deliberately does not add its own copy: the application root's third_party/libgtest is
+# the one gtest target in the build.
+if (CORAL_BUILD_TESTS)
+  if (CORALCORE_TOP_LEVEL AND NOT TARGET gtest)
+    if (DEFINED CORAL_GTEST_DIR AND EXISTS "${CORAL_GTEST_DIR}/CMakeLists.txt")
+      add_subdirectory("${CORAL_GTEST_DIR}" "${CMAKE_BINARY_DIR}/gtest")
+    elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgtest/coral/CMakeLists.txt")
+      add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgtest/coral" "${CMAKE_BINARY_DIR}/gtest")
+    else ()
+      message(FATAL_ERROR
+          "CoralCore tests need GoogleTest. Initialize the submodules with "
+          "'git submodule update --init --recursive', pass -DCORAL_GTEST_DIR=<path>, or configure "
+          "with -DCORAL_BUILD_TESTS=OFF.")
+    endif ()
+  elseif (NOT CORALCORE_TOP_LEVEL AND NOT TARGET gtest)
     message(FATAL_ERROR
-        "CoralCore tests need GoogleTest. Initialize the submodules with "
-        "'git submodule update --init --recursive', pass -DCORAL_GTEST_DIR=<path>, add the gtest "
-        "target, or configure with -DCORAL_BUILD_TESTS=OFF.")
+        "CoralCore is a subproject: the parent project must provide the gtest target from its "
+        "third_party/libgtest before adding CoralCore.")
   endif ()
 endif ()
 
