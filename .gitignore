@@ -43,6 +43,12 @@
 [Bb]uild-*/
 cmake-build-*/
 
+# IDE caches
+.idea/
+.vs/
+.vscode/
+.clangd/
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
