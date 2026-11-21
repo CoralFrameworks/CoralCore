@@ -25,18 +25,14 @@
 
 #if defined(__APPLE__)
 #include <pthread.h>
-#include <mach/mach_time.h>
-#include <mach/thread_policy.h>
 #elif defined(__linux__)
 #include <pthread.h>
-#include <sched.h>
-#include <time.h>
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #define NOMINMAX
 #include <windows.h>
-#include <avrt.h>   // MMCSS
-#pragma comment(lib, "avrt.lib")
 #endif
+
+#include <string_view>
 
 namespace coral {
 
@@ -47,7 +43,7 @@ void setThreadName(char const* name) noexcept {
   pthread_setname_np(pthread_self(), name);
 #elif defined(__APPLE__)
   pthread_setname_np(name);
-#elif defined(WIN32)
+#elif defined(_WIN32)
   std::string_view u8name(name);
   size_t size = MultiByteToWideChar(CP_UTF8, 0, u8name.data(), u8name.size(), nullptr, 0);
 
@@ -247,7 +243,7 @@ void EventThread::EventLatch::await() noexcept {
     }
     // Sleep on the counter itself: the kernel only sleeps while it still holds
     // `remaining`, so a latch that lands before the sleep is not missed.
-    BlockingWait::wait(m_remaining_count, remaining, BlockingWait::kWaitForever);
+    (void) BlockingWait::wait(m_remaining_count, remaining, BlockingWait::kWaitForever);
   }
 }
 

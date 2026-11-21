@@ -287,11 +287,11 @@ inline void BlockingWait::notifyAll(const std::atomic<uint32_t>& word) noexcept 
 namespace detail {
 
 // From <sys/ulock.h>. Declared locally so this header does not depend on a
-// private SDK header.
+// private SDK header. The operation code lives in the low 8 bits; the wake
+// flags live in bits [15, 8]. There is no ULF_WAKE_ONE flag: omitting
+// ULF_WAKE_ALL is what asks the kernel to wake one waiter.
 constexpr uint32_t kUlockCompareAndWait = 1;
-constexpr uint32_t kUlockWake = 2;
-/** ULF_WAKE_ONE: wake a single waiter instead of all of them. */
-constexpr uint32_t kUlockWakeOne = 0x00000001;
+constexpr uint32_t kUlockWakeAll = 0x00000100;
 
 extern "C" int __ulock_wait(uint32_t operation, void* address, uint64_t value, uint32_t timeout);
 extern "C" int __ulock_wake(uint32_t operation, void* address, uint64_t wakeValue);
@@ -301,7 +301,8 @@ extern "C" int __ulock_wake(uint32_t operation, void* address, uint64_t wakeValu
   if (timeoutNanos <= 0) {
     return 0;
   }
-  const uint64_t micros = static_cast<uint64_t>((timeoutNanos + 999) / 1000);
+  const auto nanos = static_cast<uint64_t>(timeoutNanos);
+  const uint64_t micros = nanos / 1000 + (nanos % 1000 != 0 ? 1 : 0);
   return micros >= std::numeric_limits<uint32_t>::max() ? std::numeric_limits<uint32_t>::max()
                                                         : static_cast<uint32_t>(micros);
 }
@@ -311,23 +312,33 @@ extern "C" int __ulock_wake(uint32_t operation, void* address, uint64_t wakeValu
 inline bool BlockingWait::wait(const std::atomic<uint32_t>& word,
     const uint32_t expected,
     const int64_t timeoutNanos) noexcept {
+  // `__ulock_wait` takes a relative timeout; a zero timeout means "wait forever".
+  // Callers express "do not block" separately, so only kWaitForever (negative)
+  // maps to zero here.
+  if (timeoutNanos == 0) {
+    return false;
+  }
   auto& mutableWord = const_cast<std::atomic<uint32_t>&>(word);
   const int result = detail::__ulock_wait(detail::kUlockCompareAndWait, &mutableWord, expected,
       timeoutNanos < 0 ? 0 : detail::microsFromNanos(timeoutNanos));
   if (result == 0) {
     return true;
   }
-  // ETIMEDOUT is the only answer that means "nothing happened".
-  return -result != ETIMEDOUT;
+  // On Darwin the libc wrapper returns -1 and sets errno, like any other POSIX
+  // call; the kernel itself reports a negative errno. Handle both so a timeout
+  // is not mistaken for a wake-up (and then retried forever).
+  const int error = result == -1 ? errno : -result;
+  return error != ETIMEDOUT;
 }
 
 inline void BlockingWait::notifyOne(const std::atomic<uint32_t>& word) noexcept {
-  detail::__ulock_wake(detail::kUlockWake | detail::kUlockWakeOne,
+  detail::__ulock_wake(detail::kUlockCompareAndWait,
       const_cast<uint32_t*>(reinterpret_cast<const uint32_t*>(&word)), 0);
 }
 
 inline void BlockingWait::notifyAll(const std::atomic<uint32_t>& word) noexcept {
-  detail::__ulock_wake(detail::kUlockWake, const_cast<uint32_t*>(reinterpret_cast<const uint32_t*>(&word)), 0);
+  detail::__ulock_wake(detail::kUlockCompareAndWait | detail::kUlockWakeAll,
+      const_cast<uint32_t*>(reinterpret_cast<const uint32_t*>(&word)), 0);
 }
 
 #else // CORAL_ATOMIC_WAIT_FALLBACK

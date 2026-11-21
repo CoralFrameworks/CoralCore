@@ -17,16 +17,28 @@
 #ifndef CORAL_UTILS_COMPILER_H
 #define CORAL_UTILS_COMPILER_H
 
-#if !defined(CORAL_BUILD_FOR_ANDROID) && !defined(CORAL_BUILD_FOR_IOS) && \
-    !defined(CORAL_BUILD_FOR_WIN) && !defined(CORAL_BUILD_FOR_LINUX) && \
-    !defined(CORAL_BUILD_FOR_MAC)
-
+// TargetConditionals.h defines TARGET_OS_* for every Apple SDK. It is included
+// even when the caller predefines a CORAL_BUILD_FOR_* macro, because the CPU
+// detection below also asks whether the build targets the iOS simulator.
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
 
+#if !defined(CORAL_BUILD_FOR_ANDROID) && !defined(CORAL_BUILD_FOR_IOS) && \
+    !defined(CORAL_BUILD_FOR_WIN) && !defined(CORAL_BUILD_FOR_LINUX) && \
+    !defined(CORAL_BUILD_FOR_MAC)
+
 #if defined(_WIN32) || defined(__SYMBIAN32__)
 #define CORAL_BUILD_FOR_WIN
+#elif defined(__APPLE__)
+// Apple platforms are checked before the generic Unix branch: a toolchain may
+// define __unix__, and the TARGET_OS_* macros are the only reliable way to tell
+// macOS from iOS.
+#if TARGET_OS_IPHONE
+#define CORAL_BUILD_FOR_IOS
+#else
+#define CORAL_BUILD_FOR_MAC
+#endif
 #elif defined(ANDROID) || defined(__ANDROID__)
 #define CORAL_BUILD_FOR_ANDROID
 #elif defined(linux) || defined(__linux) || defined(__FreeBSD__) || \
@@ -34,8 +46,6 @@
       defined(__DragonFly__) || defined(__Fuchsia__) || \
       defined(__GLIBC__) || defined(__GNU__) || defined(__unix__)
 #define CORAL_BUILD_FOR_LINUX
-#elif TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
-#define CORAL_BUILD_FOR_IOS
 #else
 #define CORAL_BUILD_FOR_MAC
 #endif

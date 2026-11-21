@@ -16,26 +16,29 @@
 
 #include <core/time/Stopwatch.h>
 
-#if defined(ANDROID)
+// These must be compiler predefines, not CMake variables: CMake defines APPLE,
+// LINUX and WIN32 only for its own scripts, never on the compiler command line.
+// Testing them here made every macOS/iOS build fall through to `return nullptr`.
+#if defined(__ANDROID__)
 #include "platform/linux/PosixStopwatch.h"
-#elif defined(APPLE)
+#elif defined(__APPLE__)
 #include "platform/darwin/DarwinStopwatch.h"
-#elif defined(LINUX)
+#elif defined(__linux__)
 #include "platform/linux/PosixStopwatch.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "platform/win32/WindowsStopwatch.h"
 #endif
 
 namespace coral {
 
 std::unique_ptr<Stopwatch> Stopwatch::Create() {
-#if defined(ANDROID)
+#if defined(__ANDROID__)
   return std::unique_ptr<Stopwatch>(new PosixStopwatch());
-#elif defined(APPLE)
+#elif defined(__APPLE__)
   return std::unique_ptr<Stopwatch>(new DarwinStopwatch());
-#elif defined(LINUX)
+#elif defined(__linux__)
   return std::unique_ptr<Stopwatch>(new PosixStopwatch());
-#elif defined(WIN32)
+#elif defined(_WIN32)
   return std::unique_ptr<Stopwatch>(new WindowsStopwatch());
 #else
   return nullptr;

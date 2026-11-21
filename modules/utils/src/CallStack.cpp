@@ -24,7 +24,7 @@
 #include <cstdint>
 #include <cstdio>
 
-#if !defined(__ANDROID__) && !defined(WIN32) && !defined(__EMSCRIPTEN__)
+#if !defined(__ANDROID__) && !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 #include <execinfo.h>
 #define HAS_EXECINFO 1
 #else
@@ -38,7 +38,7 @@
 #define HAS_EXECINFO 1
 #endif
 
-#if !defined(WIN32) && !defined(__EMSCRIPTEN__)
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 
 #include <dlfcn.h>
 
@@ -47,7 +47,7 @@
 #define HAS_DLADDR 0
 #endif
 
-#if !defined(NDEBUG) && !defined(WIN32)
+#if !defined(NDEBUG) && !defined(_WIN32)
 
 #include <cxxabi.h>
 
@@ -123,7 +123,7 @@ bool CallStack::operator<(const CallStack& rhs) const {
 // ------------------------------------------------------------------------------------------------
 
 std::string CallStack::demangle(const char* mangled) {
-#if !defined(NDEBUG) && !defined(WIN32)
+#if !defined(NDEBUG) && !defined(_WIN32)
   size_t len;
   int status;
   std::unique_ptr<char, FreeDeleter> const

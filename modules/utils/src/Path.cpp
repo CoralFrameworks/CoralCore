@@ -22,7 +22,7 @@
 #include <ostream>
 #include <sstream>
 
-#if defined(WIN32)
+#if defined(_WIN32)
 
 #include <windows.h>
 
@@ -134,7 +134,7 @@ Path Path::getAbsolutePath() const {
   return getCurrentDirectory().concat(*this);
 }
 
-#if !defined(WIN32)
+#if !defined(_WIN32)
 
 bool Path::isAbsolute() const {
   return !isEmpty() && mPath.front() == '/';
@@ -324,7 +324,7 @@ bool Path::mkdirRecursive() const {
         return result;
       }
       case ENOENT:
-        getParent().mkdirRecursive();
+        (void) getParent().mkdirRecursive();
         return mkdir();
       default:
         break;

@@ -24,7 +24,34 @@
 #   ./build/demo/coralcore_demo_hello
 
 cmake_minimum_required(VERSION 3.19)
+
+# A standalone iOS build has to name a deployment target. If it does not, CMake
+# and the compiler fall back to the SDK version, which silently produces
+# binaries that only run on the newest iOS. Pick the oldest release that the
+# libc++ std::format implementation used by Minilog supports; an application
+# tree is left alone so its own deployment target wins.
+if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND
+    CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "16.3" CACHE STRING "Minimum iOS deployment target" FORCE)
+endif ()
+
 project(CoralCore LANGUAGES CXX)
+
+# Minilog formats messages with std::format. libc++ marks the floating-point
+# std::to_chars overloads that std::format uses as available only from iOS 16.3 /
+# macOS 13.3, so an Apple build that explicitly asks for an older deployment
+# target will fail inside <format>. Point at the cause instead of the symptom.
+if (APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET)
+  if (IOS AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 16.3)
+    message(WARNING
+        "CoralCore requires an iOS deployment target of 16.3 or newer: Minilog uses std::format, "
+        "whose libc++ implementation needs iOS 16.3.")
+  elseif (NOT IOS AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 13.3)
+    message(WARNING
+        "CoralCore requires a macOS deployment target of 13.3 or newer: Minilog uses std::format, "
+        "whose libc++ implementation needs macOS 13.3.")
+  endif ()
+endif ()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -70,6 +97,14 @@ option(CORALCORE_BUILD_DEMOS "Build the CoralCore demos in demo/" ${CORALCORE_TO
 # Minilog: prefer an existing target (the application root), then the nested submodule, then an
 # explicit directory or the sibling checkout. The nested submodule is preferred for a standalone
 # CoralCore checkout; the sibling form keeps the monorepo layout working.
+# CORAL_BUILD_TESTS is the public test switch. Minilog defaults its own tests on whenever
+# IS_HOST_PLATFORM is exported (which a top-level CoralCore does), so a standalone build with tests
+# off still built and registered the Minilog suites. A top-level build follows the public switch;
+# an application tree leaves Minilog's own option to the parent.
+if (CORALCORE_TOP_LEVEL)
+  set(MINILOG_BUILD_TESTS ${CORAL_BUILD_TESTS})
+endif ()
+
 if (NOT TARGET minilog)
   if (CORALCORE_TOP_LEVEL AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/modules/minilog/CMakeLists.txt")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/modules/minilog" "${CMAKE_BINARY_DIR}/minilog")
@@ -116,7 +151,7 @@ add_subdirectory(modules/event)
 # JNI is host/Android-only: Android gets jni.h from the NDK; a host build needs a JDK.
 if (ANDROID)
   add_subdirectory(modules/jni)
-elseif (IS_HOST_PLATFORM)
+elseif (IS_HOST_PLATFORM AND NOT IOS)
   find_package(JNI QUIET)
   if (JNI_FOUND)
     add_subdirectory(modules/jni)

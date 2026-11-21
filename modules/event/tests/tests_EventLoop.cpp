@@ -252,7 +252,7 @@ int main() {
     std::atomic<bool> woke{ false };
     std::thread waiter([&] {
       const uint32_t observed = counter.sequence();
-      counter.waitForChange(observed, BlockingWait::kWaitForever);
+      (void) counter.waitForChange(observed, BlockingWait::kWaitForever);
       woke.store(true, std::memory_order_release);
     });
 
@@ -302,7 +302,7 @@ int main() {
   {
     LockFreeMpscQueue<int> queue(8);
     for (int i = 1; i <= 3; ++i) {
-      queue.tryPush(i);
+      (void) queue.tryPush(i);
     }
 
     std::vector<int> seen;

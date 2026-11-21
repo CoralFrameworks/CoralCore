@@ -21,10 +21,14 @@
 
 #include <cstring>
 #include <string>
+#include <string_view>
 
 #if defined(__APPLE__)
 #include <pthread.h>
+#include <pthread/qos.h>
+#include <mach/mach_error.h>
 #include <mach/mach_time.h>
+#include <mach/thread_act.h>
 #include <mach/thread_policy.h>
 #elif defined(__linux__)
 #include <pthread.h>
@@ -32,7 +36,7 @@
 #include <sys/resource.h>
 #include <time.h>
 #include <unistd.h>
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #define NOMINMAX
 #include <windows.h>
 #include <avrt.h>   // MMCSS
@@ -76,7 +80,7 @@ void ThreadUtils::setThreadName(char const* name) noexcept {
   pthread_setname_np(pthread_self(), name);
 #elif defined(__APPLE__)
   pthread_setname_np(name);
-#elif defined(WIN32)
+#elif defined(_WIN32)
   std::string_view u8name(name);
   size_t size = MultiByteToWideChar(CP_UTF8, 0, u8name.data(), u8name.size(), nullptr, 0);
 
@@ -144,7 +148,7 @@ void ThreadUtils::setThreadPriority(const Priority priority) noexcept {
   int error = pthread_set_qos_class_self_np(qosClass, 0);
 #ifndef NDEBUG
   if (CORAL_UNLIKELY(error)) {
-    MINILOG_WARN("pthread_set_qos_class_self_np failed: {}", strerror(errno));
+    MINILOG_WARN("pthread_set_qos_class_self_np failed: {}", strerror(error));
   }
 #endif
   if (priority == Priority::kAudio || priority == Priority::kUrgentAudio) {
@@ -177,7 +181,7 @@ void ThreadUtils::setThreadPriority(const Priority priority) noexcept {
     setpriority(PRIO_PROCESS, 0, niceVal);
     MINILOG_WARN("SCHED_FIFO failed ({}), fell back to nice {}", strerror(ret), niceVal);
   }
-#elif defined(WIN32)
+#elif defined(_WIN32)
   if (priority == Priority::kAudio || priority == Priority::kUrgentAudio) {
     // MMCSS is used by default.
     DWORD taskIndex = 0;
@@ -225,9 +229,9 @@ void ThreadUtils::elevateCurrentThread() noexcept {
   mach_timebase_info_data_t tb{};
   mach_timebase_info(&tb);
   const double ns = double(tb.numer) / double(tb.denom);
-  policy.period = uint32_t(1_000_000 / ns); // 1ms
-  policy.computation = uint32_t(500_000 / ns); // 0.5ms
-  policy.constraint = uint32_t(1_500_000 / ns); // 1.5ms
+  policy.period = uint32_t(1'000'000 / ns); // 1ms
+  policy.computation = uint32_t(500'000 / ns); // 0.5ms
+  policy.constraint = uint32_t(1'500'000 / ns); // 1.5ms
   policy.preemptible = 1;
   thread_policy_set(tid, THREAD_TIME_CONSTRAINT_POLICY,
     (thread_policy_t) & policy,

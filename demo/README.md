@@ -41,6 +41,22 @@ cmake --build build
 With a multi-configuration generator (Visual Studio, Xcode) the executables are in
 `build/demo/<Configuration>/` and the build command needs `--config <Configuration>`.
 
+On iOS the demos are built as application bundles. Configure with `-DCMAKE_SYSTEM_NAME=iOS` and an
+iOS 16.3-or-newer deployment target (Minilog uses `std::format`), then run them in a simulator:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+cmake -S . -B build-ios-sim -G "Unix Makefiles" \
+  -DCMAKE_SYSTEM_NAME=iOS \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+  -DCMAKE_OSX_SYSROOT=iphonesimulator \
+  -DCORAL_BUILD_TESTS=OFF -DCORALCORE_BUILD_DEMOS=ON
+cmake --build build-ios-sim
+xcrun simctl boot "iPhone 18 Pro"
+xcrun simctl spawn booted build-ios-sim/demo/coralcore_demo_hello.app/coralcore_demo_hello
+```
+
 ## What each demo shows
 
 | Executable | Module | Shows |

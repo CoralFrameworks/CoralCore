@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <dirent.h>
+#include <limits.h>
 #include <pwd.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -34,32 +35,79 @@ bool Path::mkdir() const {
 }
 
 Path Path::getCurrentExecutable() {
-  // First, need to establish resource path.
-  char exec_buf[2048];
-  Path result;
-
-  uint32_t buffer_size = sizeof(exec_buf);
-  if (_NSGetExecutablePath(exec_buf, &buffer_size) == 0) {
-    result.setPath(exec_buf);
+  // `_NSGetExecutablePath` writes at most `size` bytes and updates it with the
+  // required length (including the terminator) when the buffer is too small, so
+  // ask for the size first instead of guessing a fixed 2 KiB.
+  uint32_t bufferSize = 0;
+  _NSGetExecutablePath(nullptr, &bufferSize);
+  if (bufferSize == 0) {
+    return {};
   }
 
-  return result;
+  std::vector<char> executable(bufferSize);
+  if (_NSGetExecutablePath(executable.data(), &bufferSize) != 0) {
+    return {};
+  }
+
+  // The result is the path that launched the process: it can be relative and can
+  // still contain symlinks. Resolve both so a caller can compare it against the
+  // real install location.
+  char resolved[PATH_MAX];
+  if (realpath(executable.data(), resolved) != nullptr) {
+    return Path(resolved);
+  }
+  return Path(executable.data());
 }
 
 Path Path::getTemporaryDirectory() {
-  NSString* tempDir = NSTemporaryDirectory();
-  return Path([tempDir cStringUsingEncoding:NSUTF8StringEncoding]);
+  @autoreleasepool {
+    NSString* tempDir = NSTemporaryDirectory();
+    if (tempDir == nil) {
+      // Foundation could not name a temporary directory (for example in a very
+      // restricted process); fall back to the POSIX default rather than passing
+      // null to Path.
+      return Path("/tmp");
+    }
+    return Path([tempDir cStringUsingEncoding:NSUTF8StringEncoding]);
+  }
 }
 
 Path Path::getUserSettingsDirectory() {
+  @autoreleasepool {
+    // The platform-correct location for application support data. On macOS this
+    // is ~/Library/Application Support and on iOS it is the same directory inside
+    // the application container, which is backed up and not purged like Caches.
+    NSArray<NSString*>* directories =
+        NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    if (directories.count > 0) {
+      NSString* directory = directories.firstObject;
+      if (directory != nil) {
+        Path result([directory cStringUsingEncoding:NSUTF8StringEncoding]);
+        // iOS does not create Application Support in the application container.
+        // The method promises a usable directory, so create it on first use; a
+        // caller that only reads the path is unaffected.
+        if (!result.isEmpty() && !result.exists()) {
+          (void) result.mkdirRecursive();
+        }
+        return result;
+      }
+    }
+
+    NSString* home = NSHomeDirectory();
+    if (home != nil) {
+      return Path([home cStringUsingEncoding:NSUTF8StringEncoding]);
+    }
+  }
+
+  // Last resort for a process without a Foundation home directory.
   const char* home = getenv("HOME");
-  if (!home) {
+  if (home == nullptr) {
     struct passwd* pwd = getpwuid(getuid());
-    if (pwd) {
+    if (pwd != nullptr) {
       home = pwd->pw_dir;
     }
   }
-  return Path(home);
+  return home != nullptr ? Path(home) : Path();
 }
 
 std::vector <Path> Path::listContents() const {

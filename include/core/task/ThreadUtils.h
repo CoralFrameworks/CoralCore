@@ -18,6 +18,7 @@
 #define CORAL_TASK_UTILS_H
 
 #include <chrono>
+#include <cstdint>
 #include <thread>
 
 namespace coral {

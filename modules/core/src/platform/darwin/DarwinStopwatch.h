@@ -19,7 +19,8 @@
 
 #include <core/time/Stopwatch.h>
 
-#include <CoreServices/CoreServices.h>
+#include <cstdint>
+
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 

@@ -54,7 +54,7 @@ void CountDownLatch::await() noexcept {
     }
     // Sleep on the counter itself: the kernel only sleeps while it still holds
     // `remaining`, so a latch that lands before the sleep is not missed.
-    AtomicWait::wait(m_remaining_count, remaining, AtomicWait::kWaitForever);
+    (void) AtomicWait::wait(m_remaining_count, remaining, AtomicWait::kWaitForever);
   }
 }
 

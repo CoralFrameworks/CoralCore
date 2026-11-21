@@ -38,6 +38,47 @@ cmake --build build
 To use a GoogleTest checkout from somewhere else instead of the submodule, pass
 `-DCORAL_GTEST_DIR=<path/to/gtest>`.
 
+## Apple platforms (macOS and iOS)
+
+On macOS the standalone commands above are all that is needed. `utils` links Foundation because its
+Darwin `Path` implementation uses `NSTemporaryDirectory()` and the Foundation directory search APIs;
+`core` and `event` themselves only need libSystem. The tests and demos run natively:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+For iOS, configure with the iOS system name and an iOS SDK. The deployment target must be **iOS 16.3
+or newer** (macOS 13.3 or newer for a macOS target): Minilog formats log messages with `std::format`,
+and libc++ marks the floating-point `std::to_chars` support that `std::format` uses as available only
+from those releases. A standalone iOS configure that omits `CMAKE_OSX_DEPLOYMENT_TARGET` defaults it
+to 16.3 instead of silently targeting the SDK version.
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+cmake -S . -B build-ios -G "Unix Makefiles" \
+  -DCMAKE_SYSTEM_NAME=iOS \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+  -DCMAKE_OSX_SYSROOT=iphoneos \
+  -DCORAL_BUILD_TESTS=OFF
+cmake --build build-ios
+```
+
+Use `-DCMAKE_OSX_SYSROOT=iphonesimulator` for a simulator build. The demos and the test executables
+are then application bundles, so run them through the simulator:
+
+```sh
+xcrun simctl boot "iPhone 18 Pro"
+xcrun simctl spawn booted build-ios-sim/demo/coralcore_demo_hello.app/coralcore_demo_hello
+```
+
+JNI is not built on iOS: the top-level `CMakeLists.txt` adds `modules/jni` for Android and for a
+non-iOS host with a JDK, never for an iOS target. Apple signpost tracing is available but disabled by
+default because of its overhead; define `CORAL_APPLE_SYSTRACE=1` to enable it.
+
 ## Using it as a submodule
 
 Add the checkout and link the targets you need. In an application tree the application supplies the

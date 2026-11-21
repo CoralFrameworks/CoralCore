@@ -19,7 +19,7 @@
 
 #include <cerrno>
 
-#if defined(WIN32)
+#if defined(_WIN32)
 
 // Windows has no concept of EINTR.
 #define CORAL_HANDLE_EINTR(x) (x)
@@ -48,6 +48,6 @@
     eintr_wrapper_result;                                   \
   })
 
-#endif  // defined(WIN32)
+#endif  // defined(_WIN32)
 
 #endif //CORAL_TASK_EINTR_WRAPPER_H

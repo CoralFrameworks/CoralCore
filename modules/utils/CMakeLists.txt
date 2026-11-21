@@ -120,6 +120,13 @@ if (WIN32)
   target_link_libraries(${TARGET} PUBLIC Shlwapi)
 endif ()
 
+if (APPLE)
+  # Path.mm uses NSTemporaryDirectory() and the Foundation directory search APIs.
+  # PUBLIC because the library is static: the framework has to reach the final
+  # executable, and every consumer of `utils` on Apple needs it.
+  target_link_libraries(${TARGET} PUBLIC "-framework Foundation")
+endif ()
+
 # `JobSystem.cpp` is the only source here that uses `std::thread`, and on every platform whose C++
 # runtime does not fold the thread primitives into libc it needs the thread library named explicitly.
 # `find_package(Threads)` rather than a bare `pthread`, because the answer differs between glibc

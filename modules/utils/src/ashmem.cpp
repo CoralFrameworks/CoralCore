@@ -19,6 +19,8 @@
 #include <utils/api_level.h>
 #include <utils/Path.h>
 
+#include <cstdio>
+
 #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 
 #include <fcntl.h>
@@ -27,7 +29,7 @@
 
 #endif
 
-#if defined(WIN32)
+#if defined(_WIN32)
 #include <io.h>
 #include <Windows.h>
 #include <Winbase.h>

@@ -20,6 +20,7 @@
 
 #include <core/task/TaskBase.h>
 
+#include <cstdint>
 #include <memory>
 
 namespace coral {

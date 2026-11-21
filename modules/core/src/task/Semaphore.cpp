@@ -33,10 +33,12 @@ public:
 
   ~PlatformSemaphore() {
     for (uint32_t i = 0; i < initial_; ++i) {
-      Signal();
+      signal();
     }
     if (sem_ != nullptr) {
+#if !OS_OBJECT_USE_OBJC
       dispatch_release(reinterpret_cast<dispatch_object_t>(sem_));
+#endif
       sem_ = nullptr;
     }
   }
