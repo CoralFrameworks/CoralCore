@@ -14,10 +14,13 @@ observation layer. Minilog and libgtest are carried as nested submodules (`modul
 ## Standalone build
 
 CoralCore is a standalone CMake project. Minilog and GoogleTest (libgtest, which carries its own
-googletest submodule) are nested submodules, so initialize them first:
+googletest submodule) are nested submodules. The recursive update initializes Minilog;
+`third_party/libgtest` is declared with `update = none` so that a parent project's recursive update
+never downloads a copy CoralCore would not use, so a standalone checkout asks for it explicitly:
 
 ```sh
 git submodule update --init --recursive
+git -c submodule.third_party/libgtest.update=checkout submodule update --init third_party/libgtest
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure
@@ -38,9 +41,11 @@ To use a GoogleTest checkout from somewhere else instead of the submodule, pass
 ## Using it as a submodule
 
 Add the checkout and link the targets you need. In an application tree the application supplies the
-`minilog` and `gtest` targets; otherwise CoralCore falls back to its nested Minilog and libgtest
-submodules, which then have to be initialized with
-`git submodule update --init --recursive`. The demos and tests default to off in that tree:
+`minilog` and `gtest` targets; otherwise CoralCore falls back to its nested `modules/minilog` and
+`third_party/libgtest` submodules. The parent's recursive update fetches Minilog; `libgtest` carries
+`update = none`, so a tree that actually wants it overrides that strategy with
+`git -c submodule.third_party/libgtest.update=checkout submodule update --init third_party/libgtest`.
+The demos and tests default to off in that tree:
 
 ```cmake
 # Keep the application and the framework on the same C++ standard and runtime library settings.

@@ -3,9 +3,12 @@
 # ==================================================================================================
 # The foundation framework: utils, core, event and observer. Minilog is a separate repository and is
 # carried as a nested submodule under modules/minilog for a standalone checkout; the tests use
-# GoogleTest from the third_party/libgtest submodule. Initialize both before configuring:
+# GoogleTest from the third_party/libgtest submodule. Minilog comes with the recursive update; libgtest
+# carries `update = none` so that a parent project's recursive update does not download a gtest copy
+# that this file would only ever skip, so a standalone checkout asks for it explicitly:
 #
 #   git submodule update --init --recursive
+#   git -c submodule.third_party/libgtest.update=checkout submodule update --init third_party/libgtest
 #
 # A standalone checkout builds the tests and the demos:
 #
@@ -84,7 +87,8 @@ endif ()
 # Tests use GoogleTest. A standalone CoralCore gets it from its third_party/libgtest submodule
 # (which carries its own googletest submodule); CORAL_GTEST_DIR overrides that. As a subproject,
 # CoralCore deliberately does not add its own copy: the application root's third_party/libgtest is
-# the one gtest target in the build.
+# the one gtest target in the build. The submodule is declared with `update = none` for that reason —
+# a parent project's recursive update must not download a copy that would never be used here.
 if (CORAL_BUILD_TESTS)
   if (CORALCORE_TOP_LEVEL AND NOT TARGET gtest)
     if (DEFINED CORAL_GTEST_DIR AND EXISTS "${CORAL_GTEST_DIR}/CMakeLists.txt")
@@ -93,9 +97,10 @@ if (CORAL_BUILD_TESTS)
       add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgtest/coral" "${CMAKE_BINARY_DIR}/gtest")
     else ()
       message(FATAL_ERROR
-          "CoralCore tests need GoogleTest. Initialize the submodules with "
-          "'git submodule update --init --recursive', pass -DCORAL_GTEST_DIR=<path>, or configure "
-          "with -DCORAL_BUILD_TESTS=OFF.")
+          "CoralCore tests need GoogleTest. Initialize the submodule with "
+          "'git -c submodule.third_party/libgtest.update=checkout submodule update --init "
+          "third_party/libgtest', pass -DCORAL_GTEST_DIR=<path>, or configure with "
+          "-DCORAL_BUILD_TESTS=OFF.")
     endif ()
   elseif (NOT CORALCORE_TOP_LEVEL AND NOT TARGET gtest)
     message(FATAL_ERROR
