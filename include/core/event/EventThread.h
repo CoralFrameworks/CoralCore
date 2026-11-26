@@ -96,7 +96,7 @@ public:
    *
    * Safe to call from any thread, including before `start()`.
    */
-  const std::shared_ptr<EventLooper>& getLooper();
+  std::shared_ptr<EventLooper> getLooper();
 
   class EventLatch {
   public:
@@ -153,32 +153,43 @@ public:
   };
 
 private:
+  /**
+   * One generation of the thread: the looper it published, its id and the start handshake.
+   *
+   * The thread body captures this object instead of the EventThread, so a thread that detaches
+   * because it quit itself never touches a destroyed EventThread. Every start() creates a new
+   * generation, so a run that is still unwinding cannot clear a later generation's looper.
+   */
+  struct State;
+
   /** Releases the thread handle, joining or detaching as asked. */
   void releaseThread(bool join);
+
+  /** Quits the current generation; safety selects quitSafety() over quit(). */
+  bool requestQuit(bool safety);
+
+  /** The body of one generation; static so it cannot capture the EventThread. */
+  static void runState(const std::shared_ptr<State>& state, std::string name);
+
+  /** The generation start() published last, or null before it and after release. */
+  [[nodiscard]] std::shared_ptr<State> currentState() const;
 
   /** The name given to the looper thread. */
   const std::string threadName;
 
   /**
-   * Guards the thread handle and the start/stop handshake.
+   * Guards the thread handle and the current generation.
    *
-   * This is the only mutex in the event implementation, and it is not on any
-   * message path: it exists because `std::thread` itself cannot be manipulated
-   * from several threads at once.
+   * This is the only mutex in the event implementation, and it is not on any message path: it
+   * exists because std::thread itself cannot be manipulated from several threads at once.
    */
-  mutable std::mutex mStartLock;
+  mutable std::mutex mThreadLock;
 
-  /** Fired once `run()` has published the looper. */
-  mutable EventLatch barrier;
+  /** The thread handle of the current generation, owned under mThreadLock. */
+  std::shared_ptr<std::thread> mThread;
 
-  /** The looper thread's own id, published by `run()`. */
-  std::atomic<std::thread::id> mThreadId{};
-
-  /** The looper, published by `run()` once it is fully built. */
-  std::shared_ptr<EventLooper> mLooper;
-
-  /** The thread handle, owned under `mStartLock`. */
-  std::unique_ptr<std::thread> mThread;
+  /** The current generation, owned under mThreadLock. */
+  std::shared_ptr<State> mState;
 };
 
 } // namespace coral

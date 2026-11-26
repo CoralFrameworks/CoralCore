@@ -57,9 +57,31 @@ void setThreadName(char const* name) noexcept {
 
 } // namespace anonymous
 
+/**
+ * One generation of the thread.
+ *
+ * <p>The thread body captures this object instead of the `EventThread` itself, so a thread that is
+ * detached because it was asked to quit from its own looper keeps touching only the state it owns,
+ * never an `EventThread` that may already be gone. Every `start()` creates a new generation: a run
+ * that is still unwinding cannot clear the looper a later generation has just published.
+ */
+struct EventThread::State {
+  /** Guards `looper`, which is read by `getLooper()` and cleared when the run ends. */
+  std::mutex mutex;
+  /** The published looper, or null before the thread published it and after it stopped. */
+  std::shared_ptr<EventLooper> looper;
+  /** The looper thread's own id, published with the looper. */
+  std::atomic<std::thread::id> threadId{};
+  /** Fired once the looper and the id are published. */
+  EventLatch barrier{1};
+  /** Set by a `quit()` that arrives before the looper was published. */
+  std::atomic_bool quitRequested{false};
+  /** Set once the looper was deregistered and the published looper cleared. */
+  std::atomic_bool runFinished{false};
+};
+
 EventThread::EventThread(std::string name) noexcept
-    : threadName(std::move(name)),
-      barrier(1) {
+    : threadName(std::move(name)) {
 }
 
 EventThread::~EventThread() {
@@ -70,36 +92,35 @@ EventThread::~EventThread() {
 }
 
 void EventThread::start() {
+  std::shared_ptr<State> state;
   {
-    std::lock_guard<std::mutex> guard(mStartLock);
+    std::lock_guard<std::mutex> guard(mThreadLock);
     if (mThread != nullptr) {
       return;
     }
-    // Arm the handshake before the thread runs. The latch is one-shot, so it has
-    // to be re-armed for a restart; nothing is waiting in it at this point, which
-    // is what makes the reset safe.
-    barrier.reset(1);
-    // The handle is installed before the thread runs, so nothing else has to be
-    // published for the stop paths to find it.
-    mThread = std::make_unique<std::thread>(&EventThread::run, this);
+    // Every start gets a new generation. A thread of an older generation may still be unwinding
+    // (it was detached when it quit itself), and it must not clear the new generation's looper.
+    state = std::make_shared<State>();
+    mState = state;
+    // The thread captures the state, not `this`: the state is what outlives the EventThread when
+    // the thread was detached.
+    mThread = std::make_shared<std::thread>([state, name = threadName] {
+      runState(state, name);
+    });
   }
 
-  // Wait until the looper exists. The barrier is the handshake: `run()` signals it
-  // once the looper and the thread id are published, so a caller can use the
-  // looper and see the thread as alive immediately after start() returns.
-  //
-  // The wait happens outside `mStartLock` on purpose: `run()` takes that lock to
-  // publish the looper, so holding it here while waiting would deadlock.
-  barrier.await();
+  // Wait until the looper exists. The barrier is the handshake: `runState()` signals it once the
+  // looper and the thread id are published, so a caller can use the looper and see the thread as
+  // alive immediately after start() returns. The wait happens outside the lock on purpose: the
+  // thread takes that lock to publish, so holding it here while waiting would deadlock.
+  state->barrier.await();
 }
 
 void EventThread::releaseThread(const bool join) {
-  // The handle is taken under the lock and then released, so joining happens
-  // without holding it. This matters: `run()` takes the same lock on its way out,
-  // so joining while holding it would deadlock.
-  std::unique_ptr<std::thread> handle;
+  // The handle is taken under the lock and then released, so joining happens without holding it.
+  std::shared_ptr<std::thread> handle;
   {
-    std::lock_guard<std::mutex> guard(mStartLock);
+    std::lock_guard<std::mutex> guard(mThreadLock);
     handle = std::move(mThread);
   }
   if (handle == nullptr) {
@@ -113,102 +134,116 @@ void EventThread::releaseThread(const bool join) {
     return;
   }
   if (joinable) {
-    // Either a detach was asked for, or this is the looper thread itself, where
-    // joining would deadlock. Letting it finish on its own is the only option.
+    // Either a detach was asked for, or this is the looper thread itself, where joining would
+    // deadlock. Letting it finish on its own is the only option.
     handle->detach();
   }
-
-  // The handle is gone, so this object no longer considers the thread alive. This
-  // also has to clear the id: when the thread was detached, it may not have run
-  // its own cleanup yet, and a stale id would make isAlive() lie and block a
-  // restart.
-  mThreadId.store(std::thread::id{}, std::memory_order_release);
 }
 
 bool EventThread::quit() {
-  const auto looper = getLooper();
-  if (looper == nullptr) {
-    // Never started, or already gone.
-    releaseThread(true);
-    return false;
-  }
-
-  looper->quit();
-  // Joining is only safe from another thread: when quit() is called from a
-  // handler running on the looper thread, joining would deadlock.
-  releaseThread(!looper->isCurrentThread());
-  return true;
+  return requestQuit(false);
 }
 
 bool EventThread::quitSafety() {
-  const auto looper = getLooper();
-  if (looper == nullptr) {
-    releaseThread(true);
-    return false;
+  return requestQuit(true);
+}
+
+bool EventThread::requestQuit(const bool safety) {
+  const auto state = currentState();
+  std::shared_ptr<EventLooper> looper;
+  if (state != nullptr) {
+    std::lock_guard<std::mutex> guard(state->mutex);
+    looper = state->looper;
   }
 
-  looper->quitSafety();
+  if (looper == nullptr) {
+    if (state == nullptr || state->runFinished.load(std::memory_order_acquire)) {
+      // Never started, or the thread already stopped and cleared its looper.
+      releaseThread(true);
+      return false;
+    }
+    // The thread may still be between start() and publishing its looper; ask it to stop before
+    // the join so that it cannot enter the loop and block the join forever.
+    state->quitRequested.store(true, std::memory_order_release);
+    releaseThread(true);
+    return true;
+  }
+
+  if (safety) {
+    looper->quitSafety();
+  } else {
+    looper->quit();
+  }
+  // Joining is only safe from another thread: when quit() is called from a handler running on the
+  // looper thread, joining would deadlock.
   releaseThread(!looper->isCurrentThread());
   return true;
 }
 
 void EventThread::run() {
-  if (!threadName.empty()) {
-    setThreadName(threadName.c_str());
+  // Public for compatibility with the original thread body. `start()` no longer routes through
+  // here; it runs a generation with `runState()` so the body never captures the object.
+  const auto state = currentState();
+  if (state != nullptr) {
+    runState(state, threadName);
+  }
+}
+
+void EventThread::runState(const std::shared_ptr<State>& state, std::string name) {
+  if (!name.empty()) {
+    setThreadName(name.c_str());
   }
 
   EventLooper::prepare();
-  MINILOG_DEBUG("The event thread '{}' prepared its looper", threadName);
+  MINILOG_DEBUG("The event thread '{}' prepared its looper", name);
   {
-    // Publish the looper and the id together, under the lock, so whoever start()
-    // is waiting for sees a complete picture: a thread that is alive and has a
-    // usable looper. The latch is fired only after this, which is what makes
-    // start() return with both already visible.
-    std::lock_guard<std::mutex> guard(mStartLock);
-    mLooper = EventLooper::myLooper();
-    mThreadId.store(std::this_thread::get_id(), std::memory_order_release);
+    // Publish the looper and the id together, under the state lock, so whoever start() is waiting
+    // for sees a complete picture: a thread that is alive and has a usable looper.
+    std::lock_guard<std::mutex> guard(state->mutex);
+    state->looper = EventLooper::myLooper();
+    state->threadId.store(std::this_thread::get_id(), std::memory_order_release);
   }
-  barrier.latch();
+  state->barrier.latch();
 
-  EventLooper::loop();
+  if (!state->quitRequested.load(std::memory_order_acquire)) {
+    EventLooper::loop();
+  }
 
   {
-    const auto id = mThreadId.load(std::memory_order_acquire);
+    const auto id = state->threadId.load(std::memory_order_acquire);
     if (id != std::thread::id{}) {
       EventLooper::remove(id);
     }
   }
   {
-    std::lock_guard<std::mutex> guard(mStartLock);
-    mLooper.reset();
+    // Clear the published looper before the id: a reader that sees the thread as stopped always
+    // sees the looper as gone too, which is the contract `getLooper()` and `quit()` rely on.
+    std::lock_guard<std::mutex> guard(state->mutex);
+    state->looper.reset();
   }
-  mThreadId.store(std::thread::id{}, std::memory_order_release);
+  state->threadId.store(std::thread::id{}, std::memory_order_release);
+  state->runFinished.store(true, std::memory_order_release);
 }
 
 bool EventThread::isAlive() const {
-  return mThreadId.load(std::memory_order_acquire) != std::thread::id{};
+  const auto state = currentState();
+  return state != nullptr &&
+         state->threadId.load(std::memory_order_acquire) != std::thread::id{};
 }
 
-const std::shared_ptr<EventLooper>& EventThread::getLooper() {
-  static const std::shared_ptr<EventLooper> sEmptyLooper;
-
-  // The looper is handed out from under the same lock that publishes it, so a
-  // reader either sees nothing yet or a complete object; there is no polling loop
-  // and no read of a pointer that another thread is writing.
-  {
-    std::lock_guard<std::mutex> guard(mStartLock);
-    if (mLooper != nullptr) {
-      // Returned by reference, so the caller's binding stays valid as long as the
-      // thread object does; `mLooper` is only cleared by `run()` before the
-      // thread exits and by the destructor.
-      return mLooper;
-    }
+std::shared_ptr<EventLooper> EventThread::getLooper() {
+  const auto state = currentState();
+  if (state == nullptr) {
+    return nullptr;
   }
-
-  return sEmptyLooper;
+  std::lock_guard<std::mutex> guard(state->mutex);
+  return state->looper;
 }
 
-
+std::shared_ptr<EventThread::State> EventThread::currentState() const {
+  std::lock_guard<std::mutex> guard(mThreadLock);
+  return mState;
+}
 //----------------------------------------- EventLatch -----------------------------------------------------------------
 namespace {
 
